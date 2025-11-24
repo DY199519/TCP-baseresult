@@ -9,17 +9,20 @@ from GDesigner.graph.node import Node
 from GDesigner.agents.agent_registry import AgentRegistry
 from GDesigner.prompt.prompt_set_registry import PromptSetRegistry
 
-# 引入 Genome 定义 (暂时注释掉，等演化引擎准备好后再启用)
-# try:
-#     from GDesigner.evolution.genome import SystemGenome
-# except ImportError:
-#     SystemGenome = None
+# 引入 Genome 定义 (可选，如果不存在则 to_genome 方法会返回 None)
+try:
+    from GDesigner.evolution.genome import SystemGenome
+except ImportError:
+    SystemGenome = None
 
 class Graph(ABC):
     """
-    可执行的图容器，用于管理和执行节点网络。
+    TPC-MSF Version: A deterministic, executable graph container.
     
-    支持固定拓扑结构（全连接、链式、星型等），可以独立运行，不依赖演化引擎。
+    This class manages the execution of a network of nodes. Unlike the previous version,
+    it does NOT handle topology generation (GNN/VGAE). Instead, it receives a fixed
+    topology and prompt configuration from the Evolutionary Engine (MASExecutor)
+    and executes it efficiently.
     """
 
     def __init__(self, 
@@ -28,6 +31,7 @@ class Graph(ABC):
                  agent_names: List[str],
                  decision_method: str,
                  node_kwargs: List[Dict] = None,
+                 # 移除了所有 GNN 相关参数: optimized_spatial, masks, probabilities 等
                  ):
         
         self.id: str = shortuuid.ShortUUID().random(length=4)
@@ -39,13 +43,15 @@ class Graph(ABC):
         self.decision_node: Node = AgentRegistry.get(decision_method, **{"domain": self.domain, "llm_name": self.llm_name})
         self.nodes: Dict[str, Node] = {}
         
-        # 节点参数
+        # 节点参数，可能包含由演化算法生成的 custom_constraint
         self.node_kwargs = node_kwargs if node_kwargs is not None else [{} for _ in agent_names]
         
-        # 初始化节点 (此时节点是孤立的，需要通过 build_fixed_topology 或 add_edge 设置连接)
+        # 初始化节点 (此时节点是孤立的，连接将由外部 Executor 通过 add_edge 设置)
         self.init_nodes()
         
         self.prompt_set = PromptSetRegistry.get(domain)
+        
+        # 移除了: construct_adj_matrix, construct_features, init_potential_edges
 
     @property
     def num_nodes(self):
@@ -69,22 +75,22 @@ class Graph(ABC):
         """
         Creates and adds new nodes to the graph.
         如果 node_kwargs 中包含 'custom_constraint'，AgentRegistry 会将其传递给 Agent 实例。
+        这是 TPC-MSF 中 Prompt 变异生效的关键入口。
         """
         for agent_name, kwargs in zip(self.agent_names, self.node_kwargs):
             if agent_name in AgentRegistry.registry:
-                # 创建 kwargs 的副本，避免修改原始字典
-                node_kwargs = kwargs.copy() if kwargs else {}
                 # 注入全局配置
-                node_kwargs["domain"] = self.domain
-                node_kwargs["llm_name"] = self.llm_name
+                kwargs["domain"] = self.domain
+                kwargs["llm_name"] = self.llm_name
                 
-                # 实例化 Agent
-                agent_instance = AgentRegistry.get(agent_name, **node_kwargs)
+                # 实例化 Agent (kwargs 中的 custom_constraint 会被 Agent.__init__ 接收)
+                agent_instance = AgentRegistry.get(agent_name, **kwargs)
                 self.add_node(agent_instance)
 
     def add_edge(self, u_id: str, v_id: str, edge_type: str):
         """
-        手动添加边。用于构建图的拓扑结构。
+        手动添加边。在 TPC-MSF 中，拓扑结构由 MASExecutor 根据 Genome 确定后调用此方法构建。
+        替代了原有的 construct_spatial_connection 概率采样。
         
         Args:
             u_id: 源节点ID
@@ -108,57 +114,50 @@ class Graph(ABC):
             u_node.add_successor(v_node, "temporal")
         else:
             raise ValueError(f"Invalid edge_type '{edge_type}'. Must be 'spatial' or 'temporal'")
-    
-    def build_fixed_topology(self, topology_type: str = "full_connected"):
-        """
-        构建固定拓扑结构。用于快速测试和流程验证。
-        
-        Args:
-            topology_type: 拓扑类型，可选值：
-                - "full_connected": 全连接（每个节点都连接到其他所有节点）
-                - "chain": 链式（节点按顺序连接：0->1->2->...）
-                - "star": 星型（第一个节点连接到所有其他节点）
-                - "none": 不连接（节点之间无连接，只有到决策节点的连接）
-        """
-        node_ids = list(self.nodes.keys())
-        if len(node_ids) == 0:
-            return
-        
-        if topology_type == "full_connected":
-            # 全连接：每个节点都连接到其他所有节点
-            for i, u_id in enumerate(node_ids):
-                for j, v_id in enumerate(node_ids):
-                    if i != j:  # 不连接自己
-                        self.add_edge(u_id, v_id, "spatial")
-        
-        elif topology_type == "chain":
-            # 链式：0->1->2->...->n
-            for i in range(len(node_ids) - 1):
-                self.add_edge(node_ids[i], node_ids[i + 1], "spatial")
-        
-        elif topology_type == "star":
-            # 星型：第一个节点连接到所有其他节点
-            center_id = node_ids[0]
-            for i in range(1, len(node_ids)):
-                self.add_edge(center_id, node_ids[i], "spatial")
-        
-        elif topology_type == "none":
-            # 不连接：节点之间无连接
-            pass
-        
-        else:
-            raise ValueError(
-                f"Unknown topology_type '{topology_type}'. "
-                f"Must be one of: 'full_connected', 'chain', 'star', 'none'"
-            )
 
-    # 暂时注释掉 to_genome 方法，等演化引擎准备好后再启用
-    # def to_genome(self):
-    #     """
-    #     Phase 2.2: 从当前 Graph 实例提取 SystemGenome。
-    #     用于将运行时的图状态转回基因组，以便进行后续的演化操作。
-    #     """
-    #     pass 
+    def to_genome(self):
+        """
+        Phase 2.2: 从当前 Graph 实例提取 SystemGenome。
+        用于将运行时的图状态转回基因组，以便进行后续的演化操作。
+        
+        Returns:
+            SystemGenome: 如果 SystemGenome 类可用，返回基因组对象；否则返回 None
+            
+        Raises:
+            ImportError: 如果 SystemGenome 类未定义
+        """
+        if SystemGenome is None:
+            raise ImportError(
+                "SystemGenome class not found. Please create GDesigner/evolution/genome.py "
+                "with SystemGenome class definition."
+            )
+            
+        topo = []
+        prompts = {}
+
+        # 1. 提取 Spatial 连接 (拓扑结构)
+        for node_id, node in self.nodes.items():
+            for successor in node.spatial_successors:
+                # 只记录属于 nodes 的边（排除 decision_node）
+                if successor.id in self.nodes:
+                    topo.append((node_id, successor.id, "spatial"))
+            
+            # 2. 提取 Prompt (作为基因的一部分)
+            # 优先提取 custom_constraint（如果存在，说明是变异后的 prompt）
+            # 否则使用 constraint 属性
+            if hasattr(node, 'custom_constraint') and node.custom_constraint:
+                prompts[node_id] = node.custom_constraint
+            else:
+                prompts[node_id] = getattr(node, 'constraint', "")
+
+        # 3. 提取 Temporal 连接 (记忆路由)
+        for node_id, node in self.nodes.items():
+            for successor in node.temporal_successors:
+                # 只记录属于 nodes 的边（排除 decision_node）
+                if successor.id in self.nodes:
+                    topo.append((node_id, successor.id, "temporal"))
+
+        return SystemGenome.create(topo, prompts)
 
     def connect_decision_node(self):
         """将所有节点连接到决策节点 (通常在执行最后一步调用)"""
@@ -221,6 +220,15 @@ class Graph(ABC):
         异步运行图 (TPC-MSF 核心执行方法)。
         实现了真正的"层级并发" (Batch Parallelism)，而非逐个节点的异步调用。
         这对提高种群评估速度至关重要。
+        
+        Args:
+            input: 输入字典，通常包含 'task' 键
+            num_rounds: 执行轮数
+            max_tries: 每个节点执行失败后的最大重试次数
+            max_time: 每个节点执行的最大超时时间（秒）
+            
+        Returns:
+            List[Any]: 最终答案列表
         """
         for round in range(num_rounds):
             # 计算初始入度
