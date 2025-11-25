@@ -28,8 +28,21 @@ class Graph(ABC):
                  agent_names: List[str],
                  decision_method: str,
                  node_kwargs: List[Dict] = None,
+                 topology_type: Optional[str] = None,
                  ):
+        """
+        初始化图容器。
         
+        Args:
+            domain: 领域名称
+            llm_name: LLM名称
+            agent_names: Agent名称列表
+            decision_method: 决策方法
+            node_kwargs: 节点参数列表（可选）
+            topology_type: 拓扑类型（可选），如果提供则自动建立拓扑
+                         可选值: "full_connected", "chain", "star", "none"
+                         如果为None，则需要手动调用 build_fixed_topology() 或 add_edge() 建立连接
+        """
         self.id: str = shortuuid.ShortUUID().random(length=4)
         self.domain: str = domain
         self.llm_name: str = llm_name
@@ -46,6 +59,10 @@ class Graph(ABC):
         self.init_nodes()
         
         self.prompt_set = PromptSetRegistry.get(domain)
+        
+        # 如果提供了拓扑类型，自动建立拓扑（方便测试）
+        if topology_type is not None:
+            self.build_fixed_topology(topology_type)
 
     @property
     def num_nodes(self):
@@ -176,10 +193,16 @@ class Graph(ABC):
     def run(self, inputs: Any, 
             num_rounds: int = 3, 
             max_tries: int = 3, 
-            max_time: int = 600) -> List[Any]:
+            max_time: int = 600) -> Tuple[List[Any], float]:
         """
         同步运行图。保留此方法用于调试或简单场景。
+        
+        Returns:
+            Tuple[List[Any], float]: (final_answers, log_probs)
+            为了保持与原始版本接口一致，log_probs 返回 0.0（占位符）
         """
+        log_probs = 0.0  # 占位符，原始版本中用于 GNN 优化的 log_probs
+        
         for round in range(num_rounds):
             in_degree = {node_id: len(node.spatial_predecessors) for node_id, node in self.nodes.items()}
             zero_in_degree_queue = [node_id for node_id, deg in in_degree.items() if deg == 0]
@@ -211,17 +234,23 @@ class Graph(ABC):
         if len(final_answers) == 0:
             final_answers.append("No answer of the decision node")
             
-        return final_answers
+        return final_answers, log_probs
 
     async def arun(self, input: Dict[str, str], 
                    num_rounds: int = 3, 
                    max_tries: int = 3, 
-                   max_time: int = 600) -> List[Any]:
+                   max_time: int = 600) -> Tuple[List[Any], float]:
         """
         异步运行图 (TPC-MSF 核心执行方法)。
         实现了真正的"层级并发" (Batch Parallelism)，而非逐个节点的异步调用。
         这对提高种群评估速度至关重要。
+        
+        Returns:
+            Tuple[List[Any], float]: (final_answers, log_probs)
+            为了保持与原始版本接口一致，log_probs 返回 0.0（占位符）
         """
+        log_probs = 0.0  # 占位符，原始版本中用于 GNN 优化的 log_probs
+        
         for round in range(num_rounds):
             # 计算初始入度
             in_degree = {node_id: len(node.spatial_predecessors) for node_id, node in self.nodes.items()}
@@ -310,4 +339,4 @@ class Graph(ABC):
         if len(final_answers) == 0:
             final_answers.append("No answer of the decision node")
             
-        return final_answers
+        return final_answers, log_probs
