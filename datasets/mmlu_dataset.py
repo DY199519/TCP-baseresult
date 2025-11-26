@@ -3,6 +3,8 @@ import pandas as pd
 from typing import Union, List, Literal, Any, Dict
 import numpy as np
 from abc import ABC
+from pathlib import Path
+from GDesigner.utils.const import GDesigner_ROOT
 
 class MMLUDataset(ABC):
     def __init__(self,
@@ -11,8 +13,9 @@ class MMLUDataset(ABC):
 
         self._split = split
 
-        data_path = f"datasets/MMLU/data/{self._split}/"
-        self._total_df: pd.DataFrame = self._load_data(data_path)
+        # 使用绝对路径，基于 GDesigner_ROOT
+        data_path = Path(GDesigner_ROOT) / "datasets" / "MMLU" / "data" / self._split
+        self._total_df: pd.DataFrame = self._load_data(str(data_path) + "/")
 
     @staticmethod
     def get_domain() -> str:
@@ -53,13 +56,13 @@ class MMLUDataset(ABC):
     def __len__(self) -> int:
         return len(self._total_df)
 
-    def __getitem__(self, index: int) -> pd.DataFrame:
+    def __getitem__(self, index: int) -> pd.Series:
         record = self._total_df.iloc[index]
-        assert isinstance(record, pd.DataFrame) or isinstance(record, pd.Series)
+        assert isinstance(record, pd.Series), f"Expected pd.Series, got {type(record)}"
         return record
 
     @staticmethod
-    def record_to_input(record: pd.DataFrame) -> Dict[str, Any]:
+    def record_to_input(record: pd.Series) -> Dict[str, Any]:
         demo_question = (
             f"{record['question']}\n"
             f"Option A: {record['A']}\n"
@@ -82,11 +85,15 @@ class MMLUDataset(ABC):
             ans_pos = answer.find("answer is")
             if ans_pos != -1:
                 answer = answer[ans_pos+len("answer is"):].strip(":").strip().strip("Option").strip()
-            answer = answer[0] # Try to format the answer by taking the first letter
+            # 修复：确保 answer 不为空再取第一个字符
+            if len(answer) > 0:
+                answer = answer[0] # Try to format the answer by taking the first letter
+            else:
+                answer = ""  # 如果处理后为空，返回空字符串
         return answer
 
     @staticmethod
-    def record_to_target_answer(record: pd.DataFrame) -> str:
+    def record_to_target_answer(record: pd.Series) -> str:
         correct_answer = record['correct_answer']
         assert isinstance(correct_answer, str), (
             f"String expected but got {correct_answer} "

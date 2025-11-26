@@ -6,7 +6,7 @@ from GDesigner.prompt.prompt_set_registry import PromptSetRegistry
 from GDesigner.prompt.common import get_combine_materials
 
 
-roles = itertools.cycle(['Knowlegable Expert',
+roles = itertools.cycle(['Knowledgeable Expert',
                         #  'Wiki Searcher',
                          'Critic',
                          'Mathematician',
@@ -19,9 +19,9 @@ roles = itertools.cycle(['Knowlegable Expert',
 
 
 ROLE_DESCRIPTION = {
-"Knowlegable Expert":
+"Knowledgeable Expert":
 """
-You are a knowlegable expert in question answering.
+You are a knowledgeable expert in question answering.
 Please give several key entities that need to be searched in wikipedia to solve the problem, for example: catfish effect, broken window effect, Shakespeare.
 If there is no entity in the question that needs to be searched in Wikipedia, you don't have to provide it
 """,
@@ -76,15 +76,15 @@ You are a liar who only tell lies.
 """,
 }
 
-ROLE_CONNECTION = [('Knowlegable Expert','Mathematician'),
-                   ('Knowlegable Expert','Economist'),
-                   ('Knowlegable Expert','Lawyer'),
-                   ('Knowlegable Expert','Critic'),
-                   ('Knowlegable Expert','Psychologist'),
-                   ('Knowlegable Expert','Doctor'),
-                   ('Knowlegable Expert','Historian'),
-                   ('Knowlegable Expert','Programmer'),
-                   ('Knowlegable Expert','Critic'),
+ROLE_CONNECTION = [('Knowledgeable Expert','Mathematician'),
+                   ('Knowledgeable Expert','Economist'),
+                   ('Knowledgeable Expert','Lawyer'),
+                   ('Knowledgeable Expert','Critic'),
+                   ('Knowledgeable Expert','Psychologist'),
+                   ('Knowledgeable Expert','Doctor'),
+                   ('Knowledgeable Expert','Historian'),
+                   ('Knowledgeable Expert','Programmer'),
+                   ('Knowledgeable Expert','Critic'),
                    ('Mathematician','Critic'),
                    ('Mathematician','Critic'),
                    ('Psychologist','Critic'),
@@ -93,16 +93,16 @@ ROLE_CONNECTION = [('Knowlegable Expert','Mathematician'),
                    ('Critic','Psychologist'),
                    ('Psychologist','Doctor'),
                    ('Doctor','Historian'),
-                   ('Historian','Knowlegable Expert'),
+                   ('Historian','Knowledgeable Expert'),
                    ('Programmer','Mathematician'),
-                   ('Programmer','Knowlegable Expert'),
+                   ('Programmer','Knowledgeable Expert'),
                     ('Mathematician','Programmer'),
                     ('Programmer','Economist'),
                     ('Economist','Psychologist'),
-                    ('Psychologist','Knowlegable Expert'),
+                    ('Psychologist','Knowledgeable Expert'),
                     ('Critic','Historian'),
                     ('Historian','Economist'),
-                    ('Lawyer','Knowlegable Expert'),
+                    ('Lawyer','Knowledgeable Expert'),
                     ('Doctor','Lawyer'),
                     ('Mathematician','Doctor'),
                     ('Programmer','Critic'),
@@ -223,6 +223,11 @@ The first line of your reply must contain only one letter(for example : A, B, C 
         return ""
     
     def postprocess_answer(self, answer: Union[str, List[str]]) -> str:
+        """
+        后处理答案，提取单个字母 (A, B, C, D)
+        
+        与 mmlu_dataset.py 中的 postprocess_answer 保持一致
+        """
         if isinstance(answer, list):
             if len(answer) > 0:
                 answer = answer[0]
@@ -231,5 +236,13 @@ The first line of your reply must contain only one letter(for example : A, B, C 
         if not isinstance(answer, str):
             raise Exception("Expected string")
         if len(answer) > 0:
-            answer = answer[0] # Try to format the answer by taking the first letter
+            # 尝试查找 "answer is" 模式
+            ans_pos = answer.find("answer is")
+            if ans_pos != -1:
+                answer = answer[ans_pos+len("answer is"):].strip(":").strip().strip("Option").strip()
+            # 确保 answer 不为空再取第一个字符
+            if len(answer) > 0:
+                answer = answer[0]  # 提取第一个字母 (A, B, C, D)
+            else:
+                answer = ""  # 如果处理后为空，返回空字符串
         return answer

@@ -1,10 +1,8 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-
-from GDesigner.utils.log import logger
-from GDesigner.environment.tools.coding.python_executor import PyExecutor
-from GDesigner.environment.tools.coding.executor_types import Executor
+from GDesigner.tools.coding.python_executor import PyExecutor
+from GDesigner.tools.coding.executor_types import Executor
 
 EXECUTOR_MAPPING = {
     "py": PyExecutor,

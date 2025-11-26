@@ -28,7 +28,7 @@ class AnalyzeAgent(Node):
         spatial_str = ""
         temporal_str = ""
         for id, info in spatial_info.items():
-            if self.role == 'Wiki Searcher' and info['role']=='Knowlegable Expert':
+            if self.role == 'Wiki Searcher' and info['role']=='Knowledgeable Expert':
                 queries = find_strings_between_pluses(info['output'])
                 wiki = await search_wiki_main(queries)
                 if len(wiki):
@@ -45,8 +45,20 @@ class AnalyzeAgent(Node):
     def _execute(self, input:Dict[str,str],  spatial_info:Dict[str,Dict], temporal_info:Dict[str,Dict],**kwargs):
         """ To be overriden by the descendant class """
         """ Use the processed input to get the result """
-  
-        system_prompt, user_prompt = self._process_inputs(input, spatial_info, temporal_info)
+        # 同步版本：不能调用 async _process_inputs，所以内联处理逻辑（跳过 wiki 搜索）
+        system_prompt = f"{self.constraint}"
+        user_prompt = f"The task is: {input['task']}\n" if self.role != 'Fake' else self.prompt_set.get_adversarial_answer_prompt(input['task'])
+        spatial_str = ""
+        temporal_str = ""
+        # 注意：同步版本中跳过 wiki 搜索（需要异步）
+        for id, info in spatial_info.items():
+            spatial_str += f"Agent {id}, role is {info['role']}, output is:\n\n {info['output']}\n\n"
+        for id, info in temporal_info.items():
+            temporal_str += f"Agent {id}, role is {info['role']}, output is:\n\n {info['output']}\n\n"
+            
+        user_prompt += f"At the same time, the outputs of other agents are as follows:\n\n{spatial_str} \n\n" if len(spatial_str) else ""
+        user_prompt += f"In the last round of dialogue, the outputs of other agents were: \n\n{temporal_str}" if len(temporal_str) else ""
+        
         message = [{'role':'system','content':system_prompt},{'role':'user','content':user_prompt}]
         response = self.llm.gen(message)
         return response
